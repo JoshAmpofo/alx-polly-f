@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +11,22 @@ import { login } from '@/app/lib/actions/auth-actions';
 export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [csrfToken, setCsrfToken] = useState('');
+
+  // Get CSRF token on component mount
+  useEffect(() => {
+    const fetchCSRFToken = async () => {
+      try {
+        const response = await fetch('/api/csrf-token');
+        const data = await response.json();
+        setCsrfToken(data.token);
+      } catch (error) {
+        console.error('Failed to fetch CSRF token:', error);
+      }
+    };
+
+    fetchCSRFToken();
+  }, []);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -21,13 +37,33 @@ export default function LoginPage() {
     const email = formData.get('email') as string;
     const password = formData.get('password') as string;
 
-    const result = await login({ email, password });
-
-    if (result?.error) {
-      setError(result.error);
+    // Client-side validation
+    if (!email || !password) {
+      setError('Please fill in all fields');
       setLoading(false);
-    } else {
-      window.location.href = '/polls'; // Full reload to pick up session
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError('Please enter a valid email address');
+      setLoading(false);
+      return;
+    }
+
+    // Add CSRF token to form data
+    formData.append('csrf-token', csrfToken);
+
+    try {
+      const result = await login({ email, password }, formData, new Request(window.location.href));
+      
+      if (result?.error) {
+        setError(result.error);
+        setLoading(false);
+      }
+      // On success, server handles redirect
+    } catch (error) {
+      setError('Login failed. Please try again.');
+      setLoading(false);
     }
   };
 
@@ -40,6 +76,7 @@ export default function LoginPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
+            <input type="hidden" name="csrf-token" value={csrfToken} />
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input 
@@ -49,6 +86,8 @@ export default function LoginPage() {
                 placeholder="your@email.com" 
                 required
                 autoComplete="email"
+                maxLength={100}
+                disabled={loading}
               />
             </div>
             <div className="space-y-2">
@@ -59,10 +98,13 @@ export default function LoginPage() {
                 type="password" 
                 required
                 autoComplete="current-password"
+                minLength={6}
+                maxLength={100}
+                disabled={loading}
               />
             </div>
             {error && <p className="text-red-500 text-sm">{error}</p>}
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full" disabled={loading || !csrfToken}>
               {loading ? 'Logging in...' : 'Login'}
             </Button>
           </form>

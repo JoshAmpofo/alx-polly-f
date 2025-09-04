@@ -9,8 +9,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { deletePoll } from "@/app/lib/actions/poll-actions";
-import { createClient } from "@/lib/supabase/client";
+import { getAllPolls, deletePoll } from "@/app/lib/actions/poll-actions";
+import { useAuth } from "@/app/lib/context/auth-context";
+import { useRouter } from "next/navigation";
 
 interface Poll {
   id: string;
@@ -24,38 +25,92 @@ export default function AdminPage() {
   const [polls, setPolls] = useState<Poll[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { user } = useAuth();
+  const router = useRouter();
 
   useEffect(() => {
-    fetchAllPolls();
-  }, []);
+    // Check admin status and fetch polls
+    const initializeAdmin = async () => {
+      if (!user) {
+        router.push('/login');
+        return;
+      }
 
-  const fetchAllPolls = async () => {
-    const supabase = createClient();
+      try {
+        const pollsResult = await getAllPolls();
+        
+        if (pollsResult.error) {
+          if (pollsResult.error.includes('Admin privileges required')) {
+            setError('Access denied: Admin privileges required');
+          } else {
+            setError(pollsResult.error);
+          }
+        } else {
+          setIsAdmin(true);
+          setPolls(pollsResult.polls);
+        }
+      } catch (error) {
+        setError('Access denied: You do not have admin privileges');
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    const { data, error } = await supabase
-      .from("polls")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (!error && data) {
-      setPolls(data);
-    }
-    setLoading(false);
-  };
+    initializeAdmin();
+  }, [user, router]);
 
   const handleDelete = async (pollId: string) => {
+    if (!confirm("Are you sure you want to delete this poll? This action cannot be undone.")) {
+      return;
+    }
+    
     setDeleteLoading(pollId);
     const result = await deletePoll(pollId);
 
     if (!result.error) {
       setPolls(polls.filter((poll) => poll.id !== pollId));
+    } else {
+      alert(`Failed to delete poll: ${result.error}`);
     }
 
     setDeleteLoading(null);
   };
 
   if (loading) {
-    return <div className="p-6">Loading all polls...</div>;
+    return (
+      <div className="p-6 flex items-center justify-center min-h-96">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p>Verifying admin access...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !isAdmin) {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-96">
+        <Card className="max-w-md w-full border-red-200 bg-red-50">
+          <CardHeader>
+            <CardTitle className="text-red-800">Access Denied</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-red-700 mb-4">
+              {error || 'You do not have permission to access the admin panel.'}
+            </p>
+            <Button 
+              variant="outline" 
+              onClick={() => router.push('/polls')}
+              className="w-full"
+            >
+              Return to Polls
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   return (
@@ -63,7 +118,7 @@ export default function AdminPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold">Admin Panel</h1>
         <p className="text-gray-600 mt-2">
-          View and manage all polls in the system.
+          System administration - View and manage polls (Showing {polls.length} polls)
         </p>
       </div>
 
@@ -73,47 +128,57 @@ export default function AdminPage() {
             <CardHeader>
               <div className="flex justify-between items-start">
                 <div>
-                  <CardTitle className="text-lg">{poll.question}</CardTitle>
+                  <CardTitle className="text-lg break-words">
+                    {poll.question}
+                  </CardTitle>
                   <CardDescription>
                     <div className="space-y-1 mt-2">
                       <div>
-                        Poll ID:{" "}
-                        <code className="bg-gray-100 px-2 py-1 rounded text-sm font-mono">
-                          {poll.id}
-                        </code>
+                        Created: {new Date(poll.created_at).toLocaleDateString('en-US', {
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
                       </div>
-                      <div>
-                        Owner ID:{" "}
-                        <code className="bg-gray-100 px-2 py-1 rounded text-sm font-mono">
-                          {poll.user_id}
-                        </code>
-                      </div>
-                      <div>
-                        Created:{" "}
-                        {new Date(poll.created_at).toLocaleDateString()}
-                      </div>
+                      <div>Options: {poll.options.length}</div>
                     </div>
                   </CardDescription>
                 </div>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => handleDelete(poll.id)}
-                  disabled={deleteLoading === poll.id}
-                >
-                  {deleteLoading === poll.id ? "Deleting..." : "Delete"}
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => router.push(`/polls/${poll.id}`)}
+                  >
+                    View
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => handleDelete(poll.id)}
+                    disabled={deleteLoading === poll.id}
+                  >
+                    {deleteLoading === poll.id ? "Deleting..." : "Delete"}
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                <h4 className="font-medium">Options:</h4>
+                <h4 className="font-medium">Poll Options:</h4>
                 <ul className="list-disc list-inside space-y-1">
-                  {poll.options.map((option, index) => (
-                    <li key={index} className="text-gray-700">
+                  {poll.options.slice(0, 5).map((option, index) => (
+                    <li key={index} className="text-gray-700 break-words">
                       {option}
                     </li>
                   ))}
+                  {poll.options.length > 5 && (
+                    <li className="text-gray-500 italic">
+                      ...and {poll.options.length - 5} more options
+                    </li>
+                  )}
                 </ul>
               </div>
             </CardContent>

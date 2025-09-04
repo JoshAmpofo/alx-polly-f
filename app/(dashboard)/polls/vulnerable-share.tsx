@@ -12,27 +12,40 @@ import {
 } from "@/components/ui/card";
 import { Copy, Share2, Twitter, Facebook, Mail } from "lucide-react";
 import { toast } from "sonner";
+import { escapeForUrl, sanitizeText } from "@/app/lib/utils/sanitizer";
 
-interface VulnerableShareProps {
+interface SecureShareProps {
   pollId: string;
   pollTitle: string;
 }
 
-export default function VulnerableShare({
+export default function SecureShare({
   pollId,
   pollTitle,
-}: VulnerableShareProps) {
+}: SecureShareProps) {
   const [shareUrl, setShareUrl] = useState("");
+  const [sanitizedTitle, setSanitizedTitle] = useState("");
 
   useEffect(() => {
-    // Generate the share URL
-    const baseUrl = window.location.origin;
-    const pollUrl = `${baseUrl}/polls/${pollId}`;
-    setShareUrl(pollUrl);
-  }, [pollId]);
+    // Sanitize the poll title
+    const cleanTitle = sanitizeText(pollTitle);
+    setSanitizedTitle(cleanTitle);
+    
+    // Generate the share URL with validated poll ID
+    if (pollId && typeof pollId === 'string' && pollId.length > 0) {
+      const baseUrl = window.location.origin;
+      const pollUrl = `${baseUrl}/polls/${encodeURIComponent(pollId)}`;
+      setShareUrl(pollUrl);
+    }
+  }, [pollId, pollTitle]);
 
   const copyToClipboard = async () => {
     try {
+      if (!shareUrl) {
+        toast.error("Share URL not available");
+        return;
+      }
+      
       await navigator.clipboard.writeText(shareUrl);
       toast.success("Link copied to clipboard!");
     } catch (err) {
@@ -41,29 +54,69 @@ export default function VulnerableShare({
   };
 
   const shareOnTwitter = () => {
-    const text = encodeURIComponent(`Check out this poll: ${pollTitle}`);
+    if (!shareUrl || !sanitizedTitle) {
+      toast.error("Cannot share: invalid data");
+      return;
+    }
+    
+    const text = escapeForUrl(`Check out this poll: ${sanitizedTitle.slice(0, 100)}`);
     const url = encodeURIComponent(shareUrl);
-    window.open(
-      `https://twitter.com/intent/tweet?text=${text}&url=${url}`,
-      "_blank",
-    );
+    
+    const twitterUrl = `https://twitter.com/intent/tweet?text=${text}&url=${url}`;
+    
+    try {
+      window.open(twitterUrl, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      toast.error("Failed to open Twitter");
+    }
   };
 
   const shareOnFacebook = () => {
+    if (!shareUrl) {
+      toast.error("Cannot share: invalid URL");
+      return;
+    }
+    
     const url = encodeURIComponent(shareUrl);
-    window.open(
-      `https://www.facebook.com/sharer/sharer.php?u=${url}`,
-      "_blank",
-    );
+    const facebookUrl = `https://www.facebook.com/sharer/sharer.php?u=${url}`;
+    
+    try {
+      window.open(facebookUrl, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      toast.error("Failed to open Facebook");
+    }
   };
 
   const shareViaEmail = () => {
-    const subject = encodeURIComponent(`Poll: ${pollTitle}`);
-    const body = encodeURIComponent(
-      `Hi! I'd like to share this poll with you: ${shareUrl}`,
+    if (!shareUrl || !sanitizedTitle) {
+      toast.error("Cannot share: invalid data");
+      return;
+    }
+    
+    const subject = escapeForUrl(`Poll: ${sanitizedTitle.slice(0, 50)}`);
+    const body = escapeForUrl(
+      `Hi! I'd like to share this poll with you: ${shareUrl}`
     );
-    window.open(`mailto:?subject=${subject}&body=${body}`);
+    
+    const emailUrl = `mailto:?subject=${subject}&body=${body}`;
+    
+    try {
+      window.open(emailUrl, "_self");
+    } catch (error) {
+      toast.error("Failed to open email client");
+    }
   };
+
+  // Don't render if essential data is missing
+  if (!pollId || !sanitizedTitle || !shareUrl) {
+    return (
+      <Card className="w-full max-w-2xl">
+        <CardContent className="p-6">
+          <p className="text-gray-500">Share options not available</p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="w-full max-w-2xl">
@@ -129,6 +182,52 @@ export default function VulnerableShare({
               Email
             </Button>
           </div>
+        </div>
+        
+        {/* Security Notice */}
+        <div className="text-xs text-gray-500 mt-4 p-3 bg-gray-50 rounded">
+          <strong>Privacy:</strong> This sharing feature does not track or store your social media interactions.
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+            Share on social media
+          </label>
+          <div className="flex space-x-2">
+            <Button
+              onClick={shareOnTwitter}
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-2"
+            >
+              <Twitter className="h-4 w-4" />
+              Twitter
+            </Button>
+            <Button
+              onClick={shareOnFacebook}
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-2"
+            >
+              <Facebook className="h-4 w-4" />
+              Facebook
+            </Button>
+            <Button
+              onClick={shareViaEmail}
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-2"
+            >
+              <Mail className="h-4 w-4" />
+              Email
+            </Button>
+          </div>
+        </div>
+        
+        {/* Security Notice */}
+        <div className="text-xs text-gray-500 mt-4 p-3 bg-gray-50 rounded">
+          <strong>Privacy:</strong> This sharing feature does not track or store your social media interactions.
         </div>
       </CardContent>
     </Card>
